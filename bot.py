@@ -17,14 +17,19 @@ INTERVALO_LEITURA = 60   # 60 segundos = 1 minuto
 
 app = Flask(__name__)
 
-# Guarda uma fila de até 5 preços para cada moeda
 historico_precos = {}
 moedas_revolut = set()
 ultima_atualizacao_revolut = 0
+ultimo_erro_revolut = ""
+
+HEADERS_NAVEGADOR = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "application/json"
+}
 
 @app.route('/')
 def home():
-    return f"Radar Revolut X Ativo! A monitorizar {len(moedas_revolut)} moedas USD."
+    return f"Radar Revolut X Ativo! Moedas USD: {len(moedas_revolut)} | Status: {ultimo_erro_revolut or 'OK'}"
 
 def enviar_telegram(x):
     base_url = "https://" + "api.telegram.org"
@@ -38,30 +43,56 @@ def enviar_telegram(x):
     except Exception:
         pass
 
+def extrair_moedas_usd(dados):
+    """Procura pares USD em qualquer formato de resposta JSON da Revolut X"""
+    encontradas = set()
+    
+    if isinstance(dados, dict):
+        # Caso os símbolos venham como chaves do dicionário (ex: {"BTC/USD": {...}})
+        for chave, valor in dados.items():
+            if isinstance(chave, str) and (chave.endswith("/USD") or chave.endswith("-USD")):
+                encontradas.add(chave.replace("/USD", "").replace("-USD", ""))
+            elif isinstance(valor, (list, dict)):
+                encontradas.update(extrair_moedas_usd(valor))
+                
+    elif isinstance(dados, list):
+        for item in dados:
+            if isinstance(item, str) and (item.endswith("/USD") or item.endswith("-USD")):
+                encontradas.add(item.replace("/USD", "").replace("-USD", ""))
+            elif isinstance(item, dict):
+                for campo in ("symbol", "pair", "instrument", "name", "id"):
+                    val = item.get(campo, "")
+                    if isinstance(val, str) and (val.endswith("/USD") or val.endswith("-USD")):
+                        encontradas.add(val.replace("/USD", "").replace("-USD", ""))
+    return encontradas
+
 def atualizar_lista_revolut():
-    """Obtém dinamicamente todas as moedas transacionáveis contra USD na Revolut X"""
-    global moedas_revolut, ultima_atualizacao_revolut
-    url = "https://revolut.com"
-    try:
-        resposta = requests.get(url, timeout=15)
-        if resposta.status_code == 200:
-            dados = resposta.json()
-            lista_tickers = dados.get("data", dados) if isinstance(dados, dict) else dados
-            novas_moedas = set()
+    """Tenta obter os pares USD nos endpoints públicos oficiais da Revolut X"""
+    global moedas_revolut, ultima_atualizacao_revolut, ultimo_erro_revolut
+    
+    endpoints = [
+        "https://revolut.com",
+        "https://revolut.com"
+    ]
+    
+    for url in endpoints:
+        try:
+            resposta = requests.get(url, headers=HEADERS_NAVEGADOR, timeout=15)
+            if resposta.status_code == 200:
+                dados = resposta.json()
+                novas_moedas = extrair_moedas_usd(dados)
+                if novas_moedas:
+                    moedas_revolut = novas_moedas
+                    ultima_atualizacao_revolut = time.time()
+                    ultimo_erro_revolut = ""
+                    return True
+                else:
+                    ultimo_erro_revolut = "Resposta 200 mas 0 pares USD encontrados"
+            else:
+                ultimo_erro_revolut = f"HTTP {resposta.status_code}"
+        except Exception as e:
+            ultimo_erro_revolut = str(type(e).__name__)
             
-            if isinstance(lista_tickers, list):
-                for item in lista_tickers:
-                    simbolo = item.get("symbol", "") or item.get("pair", "")
-                    if simbolo.endswith("/USD") or simbolo.endswith("-USD"):
-                        base = simbolo.replace("/USD", "").replace("-USD", "")
-                        novas_moedas.add(base)
-                        
-            if novas_moedas:
-                moedas_revolut = novas_moedas
-                ultima_atualizacao_revolut = time.time()
-                return True
-    except Exception:
-        pass
     return False
 
 def obter_precos_coinbase():
@@ -74,7 +105,6 @@ def obter_precos_coinbase():
             taxas = dados.get("data", {}).get("rates", {})
             precos = {}
             for moeda, taxa in taxas.items():
-                # Filtra apenas pelas moedas que existem na Revolut X
                 if moedas_revolut and moeda not in moedas_revolut:
                     continue
                 try:
@@ -89,19 +119,18 @@ def obter_precos_coinbase():
     return None
 
 def loop_radar():
-    # Atualiza a lista de moedas da Revolut X logo ao arrancar
     sucesso = atualizar_lista_revolut()
     total = len(moedas_revolut)
     
     if sucesso:
-        enviar_telegram(f"🚀 Radar Revolut X Iniciado!\nMoedas USD encontradas na Revolut: {total}\nJanela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%")
+        enviar_telegram(f"🚀 Radar Revolut X Iniciado!\nMoedas USD Revolut X: {total}\nJanela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%")
     else:
-        enviar_telegram("⚠️ Radar Iniciado (Aviso: Não foi possível ler a lista da Revolut X, a usar todas as criptos da Coinbase).")
+        enviar_telegram(f"⚠️ Radar Iniciado sem filtro Revolut ({ultimo_erro_revolut}). A usar todas as moedas da Coinbase.")
 
     while True:
         inicio_ciclo = time.time()
 
-        # Atualiza a lista da Revolut X uma vez a cada 24 horas (86400 segundos)
+        # Atualiza a lista da Revolut X uma vez a cada 24 horas
         if time.time() - ultima_atualizacao_revolut > 86400:
             atualizar_lista_revolut()
 
@@ -112,14 +141,11 @@ def loop_radar():
 
             for moeda, preco_atual in precos_atuais.items():
                 if moeda not in historico_precos:
-                    # Cria a fila que apaga automaticamente o 6º item mais antigo
                     historico_precos[moeda] = deque(maxlen=JANELA_MINUTOS)
 
                 fila_precos = historico_precos[moeda]
 
                 if len(fila_precos) > 0:
-                    # Compara o preço atual com o menor preço dentro das últimas 5 velas
-                    # Isto apanha subidas acumuladas em 1, 2, 3, 4 ou 5 minutos!
                     menor_preco_janela = min(fila_precos)
                     
                     if menor_preco_janela > 0:
@@ -127,10 +153,8 @@ def loop_radar():
 
                         if variacao >= PERCENTUAL_ALERTA:
                             alertas_do_minuto.append(f"🟢 {moeda}: +{variacao:.2f}% (${preco_atual:.4f})")
-                            # Limpa a fila desta moeda após o alerta para não repetir a mesma subida no minuto seguinte
                             fila_precos.clear()
 
-                # Adiciona o preço atual à fila (se já tiver 5, o mais antigo sai sozinho)
                 fila_precos.append(preco_atual)
 
             if alertas_do_minuto:
