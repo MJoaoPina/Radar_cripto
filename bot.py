@@ -9,7 +9,7 @@ from flask import Flask
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
 CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
 
-PERCENTUAL_ALERTA = 3.0  # Subida mínima (%) para disparar alerta
+PERCENTUAL_ALERTA = 0.05  # Subida mínima (%) para disparar alerta
 INTERVALO_LEITURA = 60   # Tempo entre leituras (60 segundos = 1 minuto)
 # ==========================================
 
