@@ -21,6 +21,11 @@ historico_precos = {}
 pares_usd_ativos = set()
 ultima_atualizacao_pares = 0
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "application/json"
+}
+
 @app.route('/')
 def home():
     return f"Radar Ativo! A monitorizar {len(pares_usd_ativos)} criptomoedas USD."
@@ -42,7 +47,7 @@ def atualizar_pares_usd():
     global pares_usd_ativos, ultima_atualizacao_pares
     url = "https://coinbase.com"
     try:
-        resposta = requests.get(url, timeout=15)
+        resposta = requests.get(url, headers=HEADERS, timeout=15)
         if resposta.status_code == 200:
             produtos = resposta.json()
             novos_pares = set()
@@ -67,7 +72,7 @@ def obter_precos_usd():
     """Lê os preços atuais ao milissegundo e filtra pelos pares USD ativos"""
     url = "https://coinbase.com"
     try:
-        resposta = requests.get(url, timeout=15)
+        resposta = requests.get(url, headers=HEADERS, timeout=15)
         if resposta.status_code == 200:
             dados = resposta.json()
             taxas = dados.get("data", {}).get("rates", {})
@@ -102,7 +107,6 @@ def loop_radar():
     while True:
         inicio_ciclo = time.time()
 
-        # Atualiza a lista de pares ativos uma vez a cada 24 horas
         if time.time() - ultima_atualizacao_pares > 86400:
             atualizar_pares_usd()
 
