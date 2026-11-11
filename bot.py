@@ -8,7 +8,7 @@ from flask import Flask
 # CONFIGURAÇÕES DO RADAR (ALTERAR AQUI)
 # ==========================================
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
-CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
+CHAT_ID = 9290388900   # Coloca o teu número de Chat ID sem aspas
 
 PERCENTUAL_ALERTA = 3.0  # Subida acumulada mínima (%) para disparar alerta
 JANELA_MINUTOS = 5       # Número máximo de velas de 1 minuto (Ex: 5 minutos)
@@ -21,11 +21,6 @@ historico_precos = {}
 moedas_revolut = set()
 ultima_atualizacao_revolut = 0
 ultimo_erro_revolut = ""
-
-HEADERS_NAVEGADOR = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    "Accept": "application/json"
-}
 
 @app.route('/')
 def home():
@@ -43,56 +38,57 @@ def enviar_telegram(x):
     except Exception:
         pass
 
-def extrair_moedas_usd(dados):
-    """Procura pares USD em qualquer formato de resposta JSON da Revolut X"""
-    encontradas = set()
-    
-    if isinstance(dados, dict):
-        # Caso os símbolos venham como chaves do dicionário (ex: {"BTC/USD": {...}})
-        for chave, valor in dados.items():
-            if isinstance(chave, str) and (chave.endswith("/USD") or chave.endswith("-USD")):
-                encontradas.add(chave.replace("/USD", "").replace("-USD", ""))
-            elif isinstance(valor, (list, dict)):
-                encontradas.update(extrair_moedas_usd(valor))
-                
-    elif isinstance(dados, list):
-        for item in dados:
-            if isinstance(item, str) and (item.endswith("/USD") or item.endswith("-USD")):
-                encontradas.add(item.replace("/USD", "").replace("-USD", ""))
-            elif isinstance(item, dict):
-                for campo in ("symbol", "pair", "instrument", "name", "id"):
-                    val = item.get(campo, "")
-                    if isinstance(val, str) and (val.endswith("/USD") or val.endswith("-USD")):
-                        encontradas.add(val.replace("/USD", "").replace("-USD", ""))
-    return encontradas
-
 def atualizar_lista_revolut():
-    """Tenta obter os pares USD nos endpoints públicos oficiais da Revolut X"""
+    """Obtém dinamicamente os pares USD da Revolut X via agregadores públicos sem bloqueio 403"""
     global moedas_revolut, ultima_atualizacao_revolut, ultimo_erro_revolut
     
-    endpoints = [
-        "https://revolut.com",
-        "https://revolut.com"
-    ]
-    
-    for url in endpoints:
-        try:
-            resposta = requests.get(url, headers=HEADERS_NAVEGADOR, timeout=15)
-            if resposta.status_code == 200:
-                dados = resposta.json()
-                novas_moedas = extrair_moedas_usd(dados)
-                if novas_moedas:
-                    moedas_revolut = novas_moedas
-                    ultima_atualizacao_revolut = time.time()
-                    ultimo_erro_revolut = ""
-                    return True
-                else:
-                    ultimo_erro_revolut = "Resposta 200 mas 0 pares USD encontrados"
+    # Fonte 1: API Pública do CoinGecko para a exchange Revolut X
+    try:
+        novas_moedas = set()
+        for pagina in range(1, 5):  # Lê até 400 pares ativos da Revolut X
+            url_cg = f"https://coingecko.com{pagina}"
+            resp = requests.get(url_cg, timeout=15)
+            if resp.status_code == 200:
+                tickers = resp.json().get("tickers", [])
+                if not tickers:
+                    break
+                for t in tickers:
+                    base = t.get("base", "").upper()
+                    target = t.get("target", "").upper()
+                    if target == "USD" and base:
+                        novas_moedas.add(base)
             else:
-                ultimo_erro_revolut = f"HTTP {resposta.status_code}"
-        except Exception as e:
-            ultimo_erro_revolut = str(type(e).__name__)
-            
+                ultimo_erro_revolut = f"CG HTTP {resp.status_code}"
+                break
+                
+        if novas_moedas:
+            moedas_revolut = novas_moedas
+            ultima_atualizacao_revolut = time.time()
+            ultimo_erro_revolut = ""
+            return True
+    except Exception as e:
+        ultimo_erro_revolut = str(type(e).__name__)
+
+    # Fonte 2 (Alternativa): API Pública da CoinPaprika para a Revolut X
+    try:
+        url_cp = "https://coinpaprika.com"
+        resp = requests.get(url_cp, timeout=15)
+        if resp.status_code == 200:
+            mercados = resp.json()
+            novas_moedas = set()
+            for m in mercados:
+                par = m.get("pair", "").upper()
+                if par.endswith("/USD"):
+                    base = par.split("/")[0]
+                    novas_moedas.add(base)
+            if novas_moedas:
+                moedas_revolut = novas_moedas
+                ultima_atualizacao_revolut = time.time()
+                ultimo_erro_revolut = ""
+                return True
+    except Exception:
+        pass
+
     return False
 
 def obter_precos_coinbase():
@@ -105,6 +101,7 @@ def obter_precos_coinbase():
             taxas = dados.get("data", {}).get("rates", {})
             precos = {}
             for moeda, taxa in taxas.items():
+                # Filtra estritamente apenas pelas moedas listadas na Revolut X
                 if moedas_revolut and moeda not in moedas_revolut:
                     continue
                 try:
@@ -123,14 +120,14 @@ def loop_radar():
     total = len(moedas_revolut)
     
     if sucesso:
-        enviar_telegram(f"🚀 Radar Revolut X Iniciado!\nMoedas USD Revolut X: {total}\nJanela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%")
+        enviar_telegram(f"🚀 Radar Revolut X Iniciado!\nMoedas USD Revolut X carregadas: {total}\nJanela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%")
     else:
         enviar_telegram(f"⚠️ Radar Iniciado sem filtro Revolut ({ultimo_erro_revolut}). A usar todas as moedas da Coinbase.")
 
     while True:
         inicio_ciclo = time.time()
 
-        # Atualiza a lista da Revolut X uma vez a cada 24 horas
+        # Atualiza o catálogo da Revolut X uma vez a cada 24 horas
         if time.time() - ultima_atualizacao_revolut > 86400:
             atualizar_lista_revolut()
 
