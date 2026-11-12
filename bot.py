@@ -10,7 +10,7 @@ from flask import Flask
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
 CHAT_ID = 9290388900 # Coloca o teu número de Chat ID sem aspas
 
-PERCENTUAL_ALERTA = 0.05  # Subida acumulada mínima (%) para disparar alerta
+PERCENTUAL_ALERTA = 3.0  # Subida acumulada mínima (%) para disparar alerta
 JANELA_MINUTOS = 5       # Número máximo de velas de 1 minuto (Ex: 5 minutos)
 INTERVALO_LEITURA = 60   # 60 segundos = 1 minuto
 # ==========================================
@@ -152,7 +152,7 @@ def loop_radar():
                 fila_precos.append(preco_atual)
 
             if alertas_do_minuto:
-                mensagem_final = f"⚠️ Subidas Rápidas USD (Janela {JANELA_MINUTOS}m):\n\n" + "\n".join(alertas_do_minuto[:35])
+                mensagem_final = f" Subidas Rápidas USD (Janela {JANELA_MINUTOS}m):\n\n" + "\n".join(alertas_do_minuto[:35])
                 enviar_telegram(mensagem_final)
 
         tempo_decorrido = time.time() - inicio_ciclo
