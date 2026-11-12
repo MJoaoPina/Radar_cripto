@@ -1,6 +1,5 @@
 import time
 import threading
-import urllib.parse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import deque
@@ -13,25 +12,32 @@ from flask import Flask
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
 CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
 
+# Regras de Mercado
 PERCENTUAL_ALERTA = 3.0       # Subida acumulada mínima (%) para disparar alerta
 JANELA_MINUTOS = 5            # Janela deslizante máxima em minutos (Ex: 5 velas)
 INTERVALO_LEITURA = 60        # Tempo entre leituras em segundos (60 = 1 minuto)
 
+# Lista de Moedas a Ignorar (coloca entre aspas e separadas por vírgula)
+MOEDAS_BLOQUEADAS = ["MNT"]
+
+# Silêncio Noturno (Hora de Portugal - Europe/Lisbon)
 SILENCIO_NOTURNO = False      # Muda para True para ativar o silêncio noturno
 SILENCIO_INICIO = "01:00"     # Hora de início do silêncio (formato HH:MM)
 SILENCIO_FIM = "07:30"        # Hora de fim do silêncio (formato HH:MM)
 
+# Relatório Diário de "Pulso" (Hora de Portugal - Europe/Lisbon)
 RELATORIO_DIARIO = True       # Muda para False se não quiseres o resumo diário
 HORA_RELATORIO = "09:00"      # Hora de envio da confirmação diária (formato HH:MM)
 # ==============================================================================
 
 app = Flask(__name__)
 FUSO_PT = ZoneInfo("Europe/Lisbon")
+BLOQUEADAS_SET = {m.strip().upper() for m in MOEDAS_BLOQUEADAS if m.strip()}
 
 historico_precos = {}
 moedas_ativas = set()
 fonte_atual = "Nenhuma"
-ultima_atualizacao_lista = 0
+ultima_atualizacao_lista = time.time()
 ultimo_dia_relatorio = ""
 
 @app.route('/')
@@ -64,49 +70,9 @@ def esta_em_silencio_noturno():
     if SILENCIO_INICIO <= SILENCIO_FIM:
         return SILENCIO_INICIO <= agora_str < SILENCIO_FIM
     return agora_str >= SILENCIO_INICIO or agora_str < SILENCIO_FIM
-
-def extrair_pares_usd_revolut(dados):
-    encontradas = set()
-    if isinstance(dados, dict):
-        for chave, valor in dados.items():
-            if isinstance(chave, str) and (chave.endswith("/USD") or chave.endswith("-USD")):
-                encontradas.add(chave.replace("/USD", "").replace("-USD", "").upper())
-            elif isinstance(valor, (list, dict)):
-                encontradas.update(extrair_pares_usd_revolut(valor))
-    elif isinstance(dados, list):
-        for item in dados:
-            if isinstance(item, str) and (item.endswith("/USD") or item.endswith("-USD")):
-                encontradas.add(item.replace("/USD", "").replace("-USD", "").upper())
-            elif isinstance(item, dict):
-                for campo in ("symbol", "pair", "instrument", "name", "id"):
-                    val = item.get(campo, "")
-                    if isinstance(val, str) and (val.endswith("/USD") or val.endswith("-USD")):
-                        encontradas.add(val.replace("/USD", "").replace("-USD", "").upper())
-    return encontradas
-
-def obter_lista_revolut_via_proxy():
-    host_rev = ".".join(["revx", "revolut", "com"])
-    alvos = [
-        f"https://{host_rev}/api/1.0/public/pairs",
-        f"https://{host_rev}/api/1.0/public/tickers"
-    ]
-    proxies = [
-        lambda u: "https://" + ".".join(["api", "allorigins", "win"]) + "/raw?url=" + urllib.parse.quote(u, safe=""),
-        lambda u: "https://" + ".".join(["corsproxy", "io"]) + "/?" + urllib.parse.quote(u, safe="")
-    ]
-    for alvo in alvos:
-        for construir_proxy in proxies:
-            try:
-                resp = requests.get(construir_proxy(alvo), timeout=15)
-                if resp.status_code == 200:
-                    moedas = extrair_pares_usd_revolut(resp.json())
-                    if len(moedas) > 10:
-                        return moedas
-            except Exception:
-                continue
-    return None
-
+    
 def obter_lista_kraken():
+    """Obtém todos os pares de criptomoedas ativos contra USD na Kraken"""
     host_kraken = ".".join(["api", "kraken", "com"])
     url = f"https://{host_kraken}/0/public/AssetPairs"
     fiat_ignorar = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "USD", "USDT", "USDC", "DAI", "PYUSD"}
@@ -120,10 +86,10 @@ def obter_lista_kraken():
                 for info in pares.values():
                     wsname = info.get("wsname", "")
                     if wsname.endswith("/USD"):
-                        base = wsname.split("/").upper()
+                        base = wsname.split("/")[0].upper()
                         if base == "XBT":
                             base = "BTC"
-                        if base not in fiat_ignorar:
+                        if base not in fiat_ignorar and base not in BLOQUEADAS_SET:
                             novas_criptos.add(base)
                 if novas_criptos:
                     return novas_criptos
@@ -132,46 +98,35 @@ def obter_lista_kraken():
     return None
 
 def gerir_atualizacao_catalogo(eh_arranque=False):
+    """Carrega a lista no arranque e atualiza a cada 24h sem perder a memória"""
     global moedas_ativas, fonte_atual, ultima_atualizacao_lista
-    novas_revolut = obter_lista_revolut_via_proxy()
+    ultima_atualizacao_lista = time.time()
+    nova_lista = obter_lista_kraken()
 
     if eh_arranque:
-        if novas_revolut:
-            moedas_ativas = novas_revolut
-            fonte_atual = "Revolut X"
-            ultima_atualizacao_lista = time.time()
+        if nova_lista:
+            moedas_ativas = nova_lista
+            fonte_atual = "Kraken USD"
             enviar_telegram(
-                f"🚀 Radar Iniciado (Lista Oficial Revolut X)!\n"
-                f"Moedas USD ativas: {len(moedas_ativas)}\n"
+                f"🚀 Radar Iniciado ({fonte_atual})!\n"
+                f"Moedas USD ativas: {len(moedas_ativas)} (Bloqueadas: {len(BLOQUEADAS_SET)})\n"
                 f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
             )
         else:
-            lista_backup = obter_lista_kraken()
-            if lista_backup:
-                moedas_ativas = lista_backup
-                fonte_atual = "Kraken (Plano B)"
-                ultima_atualizacao_lista = time.time()
-                enviar_telegram(
-                    f"⚠️ Falha ao ler Revolut X no arranque. A usar lista Kraken ({len(moedas_ativas)} moedas) temporariamente.\n"
-                    f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
-                )
-            else:
-                fonte_atual = "Coinbase Geral"
-                enviar_telegram("⚠️ Radar Iniciado em modo geral (falha nas listas externas).")
+            fonte_atual = "Coinbase Geral"
+            enviar_telegram("⚠️ Falha ao carregar lista Kraken no arranque. A usar modo geral Coinbase.")
     else:
-        if novas_revolut:
-            if fonte_atual == "Revolut X" and moedas_ativas:
-                recem_listadas = sorted(list(novas_revolut - moedas_ativas))
+        if nova_lista:
+            if moedas_ativas:
+                recem_listadas = sorted(list(nova_lista - moedas_ativas))
                 if recem_listadas:
-                    enviar_telegram(f"🆕 Nova(s) moeda(s) listada(s) na Revolut X: {', '.join(recem_listadas)}/USD")
-            moedas_ativas = novas_revolut
-            fonte_atual = "Revolut X"
-            ultima_atualizacao_lista = time.time()
+                    enviar_telegram(f"🆕 Nova(s) moeda(s) USD detetada(s): {', '.join(recem_listadas)}")
+            moedas_ativas = nova_lista
+            fonte_atual = "Kraken USD"
         else:
-            ultima_atualizacao_lista = time.time()
             enviar_telegram(
-                f"⚠️ Aviso: A atualização diária da lista Revolut X falhou hoje.\n"
-                f"O bot continua a trabalhar normalmente com a lista anterior ({fonte_atual}: {len(moedas_ativas)} moedas)."
+                f"⚠️ Aviso: A atualização diária da lista falhou hoje.\n"
+                f"O bot continua a trabalhar com a lista anterior ({fonte_atual}: {len(moedas_ativas)} moedas)."
             )
 
 def obter_precos_usd():
@@ -183,6 +138,8 @@ def obter_precos_usd():
             taxas = resposta.json().get("data", {}).get("rates", {})
             precos = {}
             for moeda, taxa in taxas.items():
+                if moeda in BLOQUEADAS_SET:
+                    continue
                 if moedas_ativas and moeda not in moedas_ativas:
                     continue
                 try:
