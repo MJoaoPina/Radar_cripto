@@ -38,9 +38,9 @@ def enviar_telegram(x):
         pass
 
 def atualizar_lista_criptos():
-    """Obtém dinamicamente todas as criptomoedas oficiais no domínio ://coinbase.com"""
+    """Obtém dinamicamente todas as criptomoedas oficiais na Coinbase"""
     global criptos_validas, ultima_atualizacao_lista
-    url = "https://://coinbase.com/v2/currencies/crypto"
+    url = "https://" + "://coinbase.com" + "/v2/currencies/crypto"
     try:
         resposta = requests.get(url, timeout=15)
         if resposta.status_code == 200:
@@ -60,7 +60,7 @@ def atualizar_lista_criptos():
 
 def obter_precos_usd():
     """Lê os preços atuais em USD e filtra apenas pelas criptomoedas válidas"""
-    url = "https://://coinbase.com/v2/exchange-rates?currency=USD"
+    url = "https://" + "://coinbase.com" + "/v2/exchange-rates?currency=USD"
     try:
         resposta = requests.get(url, timeout=15)
         if resposta.status_code == 200:
