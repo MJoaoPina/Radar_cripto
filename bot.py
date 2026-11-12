@@ -18,17 +18,12 @@ INTERVALO_LEITURA = 60   # 60 segundos = 1 minuto
 app = Flask(__name__)
 
 historico_precos = {}
-pares_usd_ativos = set()
-ultima_atualizacao_pares = 0
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json"
-}
+criptos_validas = set()
+ultima_atualizacao_lista = 0
 
 @app.route('/')
 def home():
-    return f"Radar Ativo! A monitorizar {len(pares_usd_ativos)} criptomoedas USD."
+    return f"Radar Ativo! A monitorizar {len(criptos_validas)} criptomoedas USD."
 
 def enviar_telegram(x):
     base_url = "https://" + "api.telegram.org"
@@ -42,43 +37,38 @@ def enviar_telegram(x):
     except Exception:
         pass
 
-def atualizar_pares_usd():
-    """Obtém dinamicamente todos os pares de criptomoedas ativos contra USD"""
-    global pares_usd_ativos, ultima_atualizacao_pares
-    url = "https://coinbase.com"
+def atualizar_lista_criptos():
+    """Obtém dinamicamente todas as criptomoedas oficiais no domínio ://coinbase.com"""
+    global criptos_validas, ultima_atualizacao_lista
+    url = "https://://coinbase.com/v2/currencies/crypto"
     try:
-        resposta = requests.get(url, headers=HEADERS, timeout=15)
+        resposta = requests.get(url, timeout=15)
         if resposta.status_code == 200:
-            produtos = resposta.json()
-            novos_pares = set()
-            for item in produtos:
-                if (
-                    item.get("quote_currency") == "USD"
-                    and item.get("status") == "online"
-                    and not item.get("trading_disabled", False)
-                ):
-                    base = item.get("base_currency", "").upper()
-                    if base:
-                        novos_pares.add(base)
-            if novos_pares:
-                pares_usd_ativos = novos_pares
-                ultima_atualizacao_pares = time.time()
-                return True
-    except Exception:
-        pass
-    return False
+            dados = resposta.json().get("data", [])
+            novas_criptos = set()
+            for item in dados:
+                codigo = item.get("code", "").upper()
+                if codigo and codigo != "USD":
+                    novas_criptos.add(codigo)
+            if novas_criptos:
+                criptos_validas = novas_criptos
+                ultima_atualizacao_lista = time.time()
+                return True, ""
+        return False, f"HTTP {resposta.status_code}"
+    except Exception as e:
+        return False, str(type(e).__name__)
 
 def obter_precos_usd():
-    """Lê os preços atuais ao milissegundo e filtra pelos pares USD ativos"""
-    url = "https://coinbase.com"
+    """Lê os preços atuais em USD e filtra apenas pelas criptomoedas válidas"""
+    url = "https://://coinbase.com/v2/exchange-rates?currency=USD"
     try:
-        resposta = requests.get(url, headers=HEADERS, timeout=15)
+        resposta = requests.get(url, timeout=15)
         if resposta.status_code == 200:
             dados = resposta.json()
             taxas = dados.get("data", {}).get("rates", {})
             precos = {}
             for moeda, taxa in taxas.items():
-                if pares_usd_ativos and moeda not in pares_usd_ativos:
+                if criptos_validas and moeda not in criptos_validas:
                     continue
                 try:
                     valor_taxa = float(taxa)
@@ -92,23 +82,24 @@ def obter_precos_usd():
     return None
 
 def loop_radar():
-    sucesso = atualizar_pares_usd()
-    total = len(pares_usd_ativos)
+    sucesso, erro = atualizar_lista_criptos()
+    total = len(criptos_validas)
 
     if sucesso:
         enviar_telegram(
-            f"🚀 Radar Revolut X / USD Iniciado!\n"
-            f"Criptomoedas USD ativas: {total}\n"
+            f"🚀 Radar Revolut X / Coinbase Iniciado!\n"
+            f"Criptomoedas USD carregadas: {total}\n"
             f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
         )
     else:
-        enviar_telegram("⚠️ Radar Iniciado (Modo de reserva: leitura geral USD).")
+        enviar_telegram(f"⚠️ Radar Iniciado em modo geral ({erro}).")
 
     while True:
         inicio_ciclo = time.time()
 
-        if time.time() - ultima_atualizacao_pares > 86400:
-            atualizar_pares_usd()
+        # Atualiza a lista de criptomoedas uma vez a cada 24 horas
+        if time.time() - ultima_atualizacao_lista > 86400:
+            atualizar_lista_criptos()
 
         precos_atuais = obter_precos_usd()
 
