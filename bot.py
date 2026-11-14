@@ -73,27 +73,31 @@ def esta_em_silencio_noturno():
 
 def extrair_pares_usd_revolut(dados):
     encontradas = set()
+    
+    def analisar_texto(txt):
+        if not isinstance(txt, str):
+            return
+        t = txt.strip().upper()
+        for sufixo in ("/USD", "-USD", "_USD", "USD"):
+            if t.endswith(sufixo) and len(t) > len(sufixo):
+                base = t[:-len(sufixo)]
+                if base.isalnum() and 2 <= len(base) <= 10 and base not in BLOQUEADAS_SET:
+                    encontradas.add(base)
+                break
+
     if isinstance(dados, dict):
         for chave, valor in dados.items():
-            if isinstance(chave, str) and (chave.endswith("/USD") or chave.endswith("-USD")):
-                base = chave.replace("/USD", "").replace("-USD", "").upper()
-                if base not in BLOQUEADAS_SET:
-                    encontradas.add(base)
-            elif isinstance(valor, (list, dict)):
+            analisar_texto(chave)
+            if isinstance(valor, (list, dict)):
                 encontradas.update(extrair_pares_usd_revolut(valor))
     elif isinstance(dados, list):
         for item in dados:
-            if isinstance(item, str) and (item.endswith("/USD") or item.endswith("-USD")):
-                base = item.replace("/USD", "").replace("-USD", "").upper()
-                if base not in BLOQUEADAS_SET:
-                    encontradas.add(base)
+            if isinstance(item, str):
+                analisar_texto(item)
             elif isinstance(item, dict):
-                for campo in ("symbol", "pair", "instrument", "name", "id"):
-                    val = item.get(campo, "")
-                    if isinstance(val, str) and (val.endswith("/USD") or val.endswith("-USD")):
-                        base = val.replace("/USD", "").replace("-USD", "").upper()
-                        if base not in BLOQUEADAS_SET:
-                            encontradas.add(base)
+                for val in item.values():
+                    if isinstance(val, str):
+                        analisar_texto(val)
     return encontradas
 
 def obter_lista_revolut_ponte():
