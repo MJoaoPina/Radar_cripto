@@ -10,7 +10,7 @@ from flask import Flask
 # CONFIGURAÇÕES DO RADAR (ALTERAR APENAS AQUI)
 # ==============================================================================
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
-CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
+CHAT_ID = CHAT_ID_AQUI  # Coloca o teu número de Chat ID sem aspas
 
 # Regras de Mercado
 PERCENTUAL_ALERTA = 3.0       # Subida acumulada mínima (%) para disparar alerta
@@ -18,7 +18,7 @@ JANELA_MINUTOS = 5            # Janela deslizante máxima em minutos (Ex: 5 vela
 INTERVALO_LEITURA = 60        # Tempo entre leituras em segundos (60 = 1 minuto)
 
 # Lista de Moedas a Ignorar (coloca entre aspas e separadas por vírgula)
-MOEDAS_BLOQUEADAS = ["MNT"]
+MOEDAS_BLOQUEADAS = ["USDT", "USDC", "EURC", "DAI"]
 
 # Silêncio Noturno (Hora de Portugal - Europe/Lisbon)
 SILENCIO_NOTURNO = False      # Muda para True para ativar o silêncio noturno
@@ -70,9 +70,48 @@ def esta_em_silencio_noturno():
     if SILENCIO_INICIO <= SILENCIO_FIM:
         return SILENCIO_INICIO <= agora_str < SILENCIO_FIM
     return agora_str >= SILENCIO_INICIO or agora_str < SILENCIO_FIM
-    
-def obter_lista_kraken():
-    """Obtém todos os pares de criptomoedas ativos contra USD na Kraken"""
+
+def extrair_pares_usd_revolut(dados):
+    encontradas = set()
+    if isinstance(dados, dict):
+        for chave, valor in dados.items():
+            if isinstance(chave, str) and (chave.endswith("/USD") or chave.endswith("-USD")):
+                base = chave.replace("/USD", "").replace("-USD", "").upper()
+                if base not in BLOQUEADAS_SET:
+                    encontradas.add(base)
+            elif isinstance(valor, (list, dict)):
+                encontradas.update(extrair_pares_usd_revolut(valor))
+    elif isinstance(dados, list):
+        for item in dados:
+            if isinstance(item, str) and (item.endswith("/USD") or item.endswith("-USD")):
+                base = item.replace("/USD", "").replace("-USD", "").upper()
+                if base not in BLOQUEADAS_SET:
+                    encontradas.add(base)
+            elif isinstance(item, dict):
+                for campo in ("symbol", "pair", "instrument", "name", "id"):
+                    val = item.get(campo, "")
+                    if isinstance(val, str) and (val.endswith("/USD") or val.endswith("-USD")):
+                        base = val.replace("/USD", "").replace("-USD", "").upper()
+                        if base not in BLOQUEADAS_SET:
+                            encontradas.add(base)
+    return encontradas
+
+def obter_lista_revolut_ponte():
+    """Lê a lista oficial de pares USD da Revolut X através da tua ponte Cloudflare"""
+    host_worker = ".".join(["ponte-revolut", "joao-silva-pina", "workers", "dev"])
+    url_ponte = f"https://{host_worker}/"
+    try:
+        resp = requests.get(url_ponte, timeout=20)
+        if resp.status_code == 200:
+            moedas = extrair_pares_usd_revolut(resp.json())
+            if len(moedas) > 10:
+                return moedas
+    except Exception:
+        pass
+    return None
+
+def obter_lista_kraken_backup():
+    """Plano B: Obtém pares ativos contra USD na Kraken caso a ponte falhe"""
     host_kraken = ".".join(["api", "kraken", "com"])
     url = f"https://{host_kraken}/0/public/AssetPairs"
     fiat_ignorar = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "USD", "USDT", "USDC", "DAI", "PYUSD"}
@@ -86,7 +125,7 @@ def obter_lista_kraken():
                 for info in pares.values():
                     wsname = info.get("wsname", "")
                     if wsname.endswith("/USD"):
-                        base = wsname.split("/")[0].upper()
+                        base = wsname.split("/").upper()
                         if base == "XBT":
                             base = "BTC"
                         if base not in fiat_ignorar and base not in BLOQUEADAS_SET:
@@ -98,34 +137,42 @@ def obter_lista_kraken():
     return None
 
 def gerir_atualizacao_catalogo(eh_arranque=False):
-    """Carrega a lista no arranque e atualiza a cada 24h sem perder a memória"""
     global moedas_ativas, fonte_atual, ultima_atualizacao_lista
     ultima_atualizacao_lista = time.time()
-    nova_lista = obter_lista_kraken()
+    nova_revolut = obter_lista_revolut_ponte()
 
     if eh_arranque:
-        if nova_lista:
-            moedas_ativas = nova_lista
-            fonte_atual = "Kraken USD"
+        if nova_revolut:
+            moedas_ativas = nova_revolut
+            fonte_atual = "Revolut X"
             enviar_telegram(
-                f"🚀 Radar Iniciado ({fonte_atual})!\n"
-                f"Moedas USD ativas: {len(moedas_ativas)} (Bloqueadas: {len(BLOQUEADAS_SET)})\n"
+                f"🚀 Radar Iniciado (Lista Oficial Revolut X)!\n"
+                f"Moedas USD ativas: {len(moedas_ativas)}\n"
                 f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
             )
         else:
-            fonte_atual = "Coinbase Geral"
-            enviar_telegram("⚠️ Falha ao carregar lista Kraken no arranque. A usar modo geral Coinbase.")
+            lista_backup = obter_lista_kraken_backup()
+            if lista_backup:
+                moedas_ativas = lista_backup
+                fonte_atual = "Kraken (Plano B)"
+                enviar_telegram(
+                    f"⚠️ Falha na ponte Revolut X no arranque. A usar Kraken ({len(moedas_ativas)} moedas) temporariamente.\n"
+                    f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
+                )
+            else:
+                fonte_atual = "Coinbase Geral"
+                enviar_telegram("⚠️ Radar Iniciado em modo geral (falha nas listas externas).")
     else:
-        if nova_lista:
-            if moedas_ativas:
-                recem_listadas = sorted(list(nova_lista - moedas_ativas))
+        if nova_revolut:
+            if fonte_atual == "Revolut X" and moedas_ativas:
+                recem_listadas = sorted(list(nova_revolut - moedas_ativas))
                 if recem_listadas:
-                    enviar_telegram(f"🆕 Nova(s) moeda(s) USD detetada(s): {', '.join(recem_listadas)}")
-            moedas_ativas = nova_lista
-            fonte_atual = "Kraken USD"
+                    enviar_telegram(f"🆕 Nova(s) moeda(s) listada(s) na Revolut X: {', '.join(recem_listadas)}/USD")
+            moedas_ativas = nova_revolut
+            fonte_atual = "Revolut X"
         else:
             enviar_telegram(
-                f"⚠️ Aviso: A atualização diária da lista falhou hoje.\n"
+                f"⚠️ Aviso: A atualização diária da lista Revolut X falhou hoje.\n"
                 f"O bot continua a trabalhar com a lista anterior ({fonte_atual}: {len(moedas_ativas)} moedas)."
             )
 
