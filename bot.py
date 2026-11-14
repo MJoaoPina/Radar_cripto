@@ -10,7 +10,7 @@ from flask import Flask
 # CONFIGURAÇÕES DO RADAR (ALTERAR APENAS AQUI)
 # ==============================================================================
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
-CHAT_ID = CHAT_ID_AQUI  # Coloca o teu número de Chat ID sem aspas
+CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
 
 # Regras de Mercado
 PERCENTUAL_ALERTA = 3.0       # Subida acumulada mínima (%) para disparar alerta
