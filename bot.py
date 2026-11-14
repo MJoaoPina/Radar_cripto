@@ -39,6 +39,7 @@ moedas_ativas = set()
 fonte_atual = "Nenhuma"
 ultima_atualizacao_lista = time.time()
 ultimo_dia_relatorio = ""
+ultimo_diagnostico_ponte = ""
 
 @app.route('/')
 def home():
@@ -102,17 +103,28 @@ def extrair_pares_usd_revolut(dados):
 
 def obter_lista_revolut_ponte():
     """Lê a lista oficial de pares USD da Revolut X através da tua ponte Cloudflare"""
+    global ultimo_diagnostico_ponte
     host_worker = ".".join(["ponte-revolut", "joao-silva-pina", "workers", "dev"])
     url_ponte = f"https://{host_worker}/"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     try:
         resp = requests.get(url_ponte, headers=headers, timeout=30)
         if resp.status_code == 200:
-            moedas = extrair_pares_usd_revolut(resp.json())
-            if len(moedas) > 10:
-                return moedas
-    except Exception:
-        pass
+            texto_bruto = resp.text
+            try:
+                dados = resp.json()
+                moedas = extrair_pares_usd_revolut(dados)
+                if len(moedas) > 10:
+                    ultimo_diagnostico_ponte = "OK"
+                    return moedas
+                else:
+                    ultimo_diagnostico_ponte = f"JSON sem pares ({texto_bruto[:50]})"
+            except Exception:
+                ultimo_diagnostico_ponte = f"Nao eh JSON ({texto_bruto[:50]})"
+        else:
+            ultimo_diagnostico_ponte = f"HTTP {resp.status_code}"
+    except Exception as e:
+        ultimo_diagnostico_ponte = str(type(e).__name__)
     return None
 
 def obter_lista_kraken_backup():
@@ -161,7 +173,7 @@ def gerir_atualizacao_catalogo(eh_arranque=False):
                 moedas_ativas = lista_backup
                 fonte_atual = "Kraken (Plano B)"
                 enviar_telegram(
-                    f"⚠️ Falha na ponte Revolut X no arranque. A usar Kraken ({len(moedas_ativas)} moedas) temporariamente.\n"
+                    f"⚠️ Falha na ponte Revolut X ({ultimo_diagnostico_ponte}). A usar Kraken ({len(moedas_ativas)} moedas) temporariamente.\n"
                     f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
                 )
             else:
@@ -177,7 +189,7 @@ def gerir_atualizacao_catalogo(eh_arranque=False):
             fonte_atual = "Revolut X"
         else:
             enviar_telegram(
-                f"⚠️ Aviso: A atualização diária da lista Revolut X falhou hoje.\n"
+                f"⚠️ Aviso: A atualização diária da lista Revolut X falhou hoje ({ultimo_diagnostico_ponte}).\n"
                 f"O bot continua a trabalhar com a lista anterior ({fonte_atual}: {len(moedas_ativas)} moedas)."
             )
 
