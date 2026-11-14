@@ -100,8 +100,9 @@ def obter_lista_revolut_ponte():
     """Lê a lista oficial de pares USD da Revolut X através da tua ponte Cloudflare"""
     host_worker = ".".join(["ponte-revolut", "joao-silva-pina", "workers", "dev"])
     url_ponte = f"https://{host_worker}/"
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        resp = requests.get(url_ponte, timeout=20)
+        resp = requests.get(url_ponte, headers=headers, timeout=30)
         if resp.status_code == 200:
             moedas = extrair_pares_usd_revolut(resp.json())
             if len(moedas) > 10:
@@ -125,7 +126,7 @@ def obter_lista_kraken_backup():
                 for info in pares.values():
                     wsname = info.get("wsname", "")
                     if wsname.endswith("/USD"):
-                        base = wsname.split("/").upper()
+                        base = wsname.split("/")[0].upper()
                         if base == "XBT":
                             base = "BTC"
                         if base not in fiat_ignorar and base not in BLOQUEADAS_SET:
