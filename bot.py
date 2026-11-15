@@ -17,9 +17,6 @@ PERCENTUAL_ALERTA = 3.0       # Subida acumulada mínima (%) para disparar alert
 JANELA_MINUTOS = 5            # Janela deslizante máxima em minutos (Ex: 5 velas)
 INTERVALO_LEITURA = 60        # Tempo entre leituras em segundos (60 = 1 minuto)
 
-# Lista de Moedas a Ignorar (coloca entre aspas e separadas por vírgula)
-MOEDAS_BLOQUEADAS = ["USDT", "USDC", "EURC", "DAI"]
-
 # Silêncio Noturno (Hora de Portugal - Europe/Lisbon)
 SILENCIO_NOTURNO = False      # Muda para True para ativar o silêncio noturno
 SILENCIO_INICIO = "01:00"     # Hora de início do silêncio (formato HH:MM)
@@ -28,22 +25,51 @@ SILENCIO_FIM = "07:30"        # Hora de fim do silêncio (formato HH:MM)
 # Relatório Diário de "Pulso" (Hora de Portugal - Europe/Lisbon)
 RELATORIO_DIARIO = True       # Muda para False se não quiseres o resumo diário
 HORA_RELATORIO = "09:00"      # Hora de envio da confirmação diária (formato HH:MM)
+
+# Lista Branca Oficial Revolut X (289 pares USD)
+MOEDAS_PERMITIDAS = [
+    "1INCH", "2Z", "A8", "AAVE", "ABT", "ACH", "ACS", "ADA", "AERGO", "AERO",
+    "AGLD", "AI", "AIOZ", "AKT", "ALCX", "ALEO", "ALEPH", "ALGO", "ALICE", "AMP",
+    "ANKR", "APE", "API3", "APT", "ARB", "ARKM", "ARPA", "ASM", "AST", "ATH",
+    "ATOM", "AUCTION", "AUDIO", "AURORA", "AVAX", "AVNT", "AVT", "AWE", "AXS", "B3",
+    "BAL", "BAND", "BAT", "BCH", "BEAM", "BENJI", "BERA", "BICO", "BIGTIME", "BLUR",
+    "BLZ", "BNB", "BNT", "BOBA", "BONK", "BTC", "BTRST", "C98", "CC", "CELO",
+    "CELR", "CHZ", "CLANKER", "COMP", "COOKIE", "COTI", "COW", "CRO", "CRV", "CTSI",
+    "CVC", "CVX", "DASH", "DEGEN", "DIA", "DIMO", "DOGE", "DOGINME", "DOGS", "DOT",
+    "DRIFT", "DYDX", "EDGE", "EGLD", "EIGEN", "ELA", "ENA", "ENS", "ETC", "ETH",
+    "EUL", "FAI", "FARM", "FET", "FIDA", "FIL", "FLOKI", "FLOW", "FLR", "FORT",
+    "GALA", "GFI", "GHST", "GIGA", "GLM", "GMT", "GODS", "GRASS", "GRT", "GTC",
+    "GUN", "HBAR", "HFT", "HIGH", "HNT", "HONEY", "HOPR", "HYPE", "ICP", "IDOS",
+    "ILV", "IMU", "IMX", "INIT", "INJ", "IO", "IP", "JASMY", "JTO", "JUP",
+    "KAITO", "KARRAT", "KAVA", "KERNEL", "KNC", "KRL", "KSM", "KTA", "L3", "LA",
+    "LAYER", "LCX", "LDO", "LINK", "LMWR", "LPT", "LQTY", "LRC", "LRDS", "LTC",
+    "MAGIC", "MANA", "MASK", "MATH", "MDT", "ME", "MELANIA", "METIS", "MEW", "MINA",
+    "MLN", "MNDE", "MOG", "MON", "MOODENG", "MORPHO", "MSOL", "NCT", "NEAR", "NEIRO",
+    "NKN", "NMR", "NOT", "OCEAN", "OFC", "OGN", "ONDO", "OP", "ORCA", "OSMO",
+    "OXT", "PARTI", "PENDLE", "PENGU", "PEPE", "PERP", "PLUME", "PNG", "PNUT", "POL",
+    "POLS", "POND", "PONKE", "POPCAT", "POWR", "PRCL", "PRIME", "PRO", "PROMPT", "PROVE",
+    "PUMP", "PUNDIX", "PYTH", "QI", "QNT", "RAD", "RARE", "RARI", "RAY", "RED",
+    "RENDER", "REQ", "REZ", "RLC", "RLS", "ROSE", "RPL", "RSC", "RSR", "SAFE",
+    "SAND", "SD", "SEI", "SENT", "SHDW", "SHIB", "SHPING", "SKL", "SKY", "SNX",
+    "SOL", "SPA", "SPELL", "SPK", "SPX", "SQD", "STG", "STORJ", "STRK", "STX",
+    "SUI", "SUKU", "SUPER", "SUSHI", "SWELL", "SWFTC", "SXT", "SYRUP", "TAIKO", "TIA",
+    "TNSR", "TOKEN", "TON", "TOSHI", "TRAC", "TRB", "TREE", "TRU", "TRUMP", "TRX",
+    "TURBO", "UMA", "UNI", "USDC", "VET", "VTHO", "VVV", "WAL", "WIF", "WLD",
+    "WLFI", "WOO", "XAN", "XCN", "XDC", "XLM", "XPL", "XRP", "XTZ", "XYO",
+    "YFI", "ZAMA", "ZEN", "ZK", "ZKC", "ZKJ", "ZORA", "ZRO", "ZRX"
+]
 # ==============================================================================
 
 app = Flask(__name__)
 FUSO_PT = ZoneInfo("Europe/Lisbon")
-BLOQUEADAS_SET = {m.strip().upper() for m in MOEDAS_BLOQUEADAS if m.strip()}
+PERMITIDAS_SET = {m.strip().upper() for m in MOEDAS_PERMITIDAS if m.strip()}
 
 historico_precos = {}
-moedas_ativas = set()
-fonte_atual = "Nenhuma"
-ultima_atualizacao_lista = time.time()
 ultimo_dia_relatorio = ""
-ultimo_diagnostico_ponte = ""
 
 @app.route('/')
 def home():
-    return f"Radar Ativo | Fonte: {fonte_atual} | Moedas USD: {len(moedas_ativas)}"
+    return f"Radar Revolut X Ativo | Moedas USD monitorizadas: {len(PERMITIDAS_SET)}"
 
 def enviar_telegram(texto):
     host_tg = ".".join(["api", "telegram", "org"])
@@ -72,127 +98,6 @@ def esta_em_silencio_noturno():
         return SILENCIO_INICIO <= agora_str < SILENCIO_FIM
     return agora_str >= SILENCIO_INICIO or agora_str < SILENCIO_FIM
 
-def extrair_pares_usd_revolut(dados):
-    encontradas = set()
-    
-    def analisar_texto(txt):
-        if not isinstance(txt, str):
-            return
-        t = txt.strip().upper()
-        for sufixo in ("/USD", "-USD", "_USD", "USD"):
-            if t.endswith(sufixo) and len(t) > len(sufixo):
-                base = t[:-len(sufixo)]
-                if base.isalnum() and 2 <= len(base) <= 10 and base not in BLOQUEADAS_SET:
-                    encontradas.add(base)
-                break
-
-    if isinstance(dados, dict):
-        for chave, valor in dados.items():
-            analisar_texto(chave)
-            if isinstance(valor, (list, dict)):
-                encontradas.update(extrair_pares_usd_revolut(valor))
-    elif isinstance(dados, list):
-        for item in dados:
-            if isinstance(item, str):
-                analisar_texto(item)
-            elif isinstance(item, dict):
-                for val in item.values():
-                    if isinstance(val, str):
-                        analisar_texto(val)
-    return encontradas
-
-def obter_lista_revolut_ponte():
-    """Lê a lista oficial de pares USD da Revolut X através da tua ponte Cloudflare"""
-    global ultimo_diagnostico_ponte
-    host_worker = ".".join(["ponte-revolut", "joao-silva-pina", "workers", "dev"])
-    url_ponte = f"https://{host_worker}/"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        resp = requests.get(url_ponte, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            texto_bruto = resp.text
-            try:
-                dados = resp.json()
-                moedas = extrair_pares_usd_revolut(dados)
-                if len(moedas) > 10:
-                    ultimo_diagnostico_ponte = "OK"
-                    return moedas
-                else:
-                    ultimo_diagnostico_ponte = f"JSON sem pares ({texto_bruto[:50]})"
-            except Exception:
-                ultimo_diagnostico_ponte = f"Nao eh JSON ({texto_bruto[:50]})"
-        else:
-            ultimo_diagnostico_ponte = f"HTTP {resp.status_code}"
-    except Exception as e:
-        ultimo_diagnostico_ponte = str(type(e).__name__)
-    return None
-
-def obter_lista_kraken_backup():
-    """Plano B: Obtém pares ativos contra USD na Kraken caso a ponte falhe"""
-    host_kraken = ".".join(["api", "kraken", "com"])
-    url = f"https://{host_kraken}/0/public/AssetPairs"
-    fiat_ignorar = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "USD", "USDT", "USDC", "DAI", "PYUSD"}
-    try:
-        resposta = requests.get(url, timeout=15)
-        if resposta.status_code == 200:
-            dados = resposta.json()
-            if not dados.get("error"):
-                pares = dados.get("result", {})
-                novas_criptos = set()
-                for info in pares.values():
-                    wsname = info.get("wsname", "")
-                    if wsname.endswith("/USD"):
-                        base = wsname.split("/")[0].upper()
-                        if base == "XBT":
-                            base = "BTC"
-                        if base not in fiat_ignorar and base not in BLOQUEADAS_SET:
-                            novas_criptos.add(base)
-                if novas_criptos:
-                    return novas_criptos
-    except Exception:
-        pass
-    return None
-
-def gerir_atualizacao_catalogo(eh_arranque=False):
-    global moedas_ativas, fonte_atual, ultima_atualizacao_lista
-    ultima_atualizacao_lista = time.time()
-    nova_revolut = obter_lista_revolut_ponte()
-
-    if eh_arranque:
-        if nova_revolut:
-            moedas_ativas = nova_revolut
-            fonte_atual = "Revolut X"
-            enviar_telegram(
-                f"🚀 Radar Iniciado (Lista Oficial Revolut X)!\n"
-                f"Moedas USD ativas: {len(moedas_ativas)}\n"
-                f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
-            )
-        else:
-            lista_backup = obter_lista_kraken_backup()
-            if lista_backup:
-                moedas_ativas = lista_backup
-                fonte_atual = "Kraken (Plano B)"
-                enviar_telegram(
-                    f"⚠️ Falha na ponte Revolut X ({ultimo_diagnostico_ponte}). A usar Kraken ({len(moedas_ativas)} moedas) temporariamente.\n"
-                    f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
-                )
-            else:
-                fonte_atual = "Coinbase Geral"
-                enviar_telegram("⚠️ Radar Iniciado em modo geral (falha nas listas externas).")
-    else:
-        if nova_revolut:
-            if fonte_atual == "Revolut X" and moedas_ativas:
-                recem_listadas = sorted(list(nova_revolut - moedas_ativas))
-                if recem_listadas:
-                    enviar_telegram(f"🆕 Nova(s) moeda(s) listada(s) na Revolut X: {', '.join(recem_listadas)}/USD")
-            moedas_ativas = nova_revolut
-            fonte_atual = "Revolut X"
-        else:
-            enviar_telegram(
-                f"⚠️ Aviso: A atualização diária da lista Revolut X falhou hoje ({ultimo_diagnostico_ponte}).\n"
-                f"O bot continua a trabalhar com a lista anterior ({fonte_atual}: {len(moedas_ativas)} moedas)."
-            )
-
 def obter_precos_usd():
     host_cb = ".".join(["api", "coinbase", "com"])
     url = f"https://{host_cb}/v2/exchange-rates?currency=USD"
@@ -202,9 +107,7 @@ def obter_precos_usd():
             taxas = resposta.json().get("data", {}).get("rates", {})
             precos = {}
             for moeda, taxa in taxas.items():
-                if moeda in BLOQUEADAS_SET:
-                    continue
-                if moedas_ativas and moeda not in moedas_ativas:
+                if moeda not in PERMITIDAS_SET:
                     continue
                 try:
                     valor_taxa = float(taxa)
@@ -219,7 +122,11 @@ def obter_precos_usd():
 
 def loop_radar():
     global ultimo_dia_relatorio
-    gerir_atualizacao_catalogo(eh_arranque=True)
+    enviar_telegram(
+        f"🚀 Radar Revolut X Iniciado!\n"
+        f"Moedas USD na lista branca: {len(PERMITIDAS_SET)}\n"
+        f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
+    )
 
     while True:
         inicio_ciclo = time.time()
@@ -230,10 +137,7 @@ def loop_radar():
             hora_atual_str = agora_pt.strftime("%H:%M")
             if hoje_str != ultimo_dia_relatorio and hora_atual_str == HORA_RELATORIO:
                 ultimo_dia_relatorio = hoje_str
-                enviar_telegram(f"✅ Radar Ativo | Fonte: {fonte_atual} ({len(moedas_ativas)} moedas USD)")
-
-        if time.time() - ultima_atualizacao_lista > 86400:
-            gerir_atualizacao_catalogo(eh_arranque=False)
+                enviar_telegram(f"✅ Radar Revolut X Ativo ({len(PERMITIDAS_SET)} moedas USD monitorizadas)")
 
         precos_atuais = obter_precos_usd()
 
@@ -260,7 +164,7 @@ def loop_radar():
                 fila_precos.append(preco_atual)
 
             if alertas_do_minuto and not esta_em_silencio_noturno():
-                mensagem_final = f"⚠️ Subidas Rápidas ({fonte_atual} | Janela {JANELA_MINUTOS}m):\n\n" + "\n".join(alertas_do_minuto[:35])
+                mensagem_final = f"⚠️ Subidas Rápidas Revolut X (Janela {JANELA_MINUTOS}m):\n\n" + "\n".join(alertas_do_minuto[:35])
                 enviar_telegram(mensagem_final)
 
         tempo_decorrido = time.time() - inicio_ciclo
