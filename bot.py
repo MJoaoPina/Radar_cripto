@@ -13,18 +13,25 @@ TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
 CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
 
 # Regras de Mercado
-PERCENTUAL_ALERTA = 3.0       # Subida acumulada mínima (%) para disparar alerta
-JANELA_MINUTOS = 5            # Janela deslizante máxima em minutos (Ex: 5 velas)
-INTERVALO_LEITURA = 60        # Tempo entre leituras em segundos (60 = 1 minuto)
+PERCENTUAL_ALERTA = 3.0         # Subida mínima (%) na janela de impulso
+JANELA_IMPULSO = 5              # Janela rápida de impulso em minutos (Ex: 5 min)
+INTERVALO_LEITURA = 60          # Tempo entre leituras em segundos (60 = 1 min)
+
+# Filtros Anti-Ruído / Anti-Bots (Instantâneos - Sem atraso)
+EXIGIR_ROMPIMENTO_TOPO = True   # Exige superar o máximo dos últimos minutos
+JANELA_TOPO = 10                # Tempo em minutos para o Rompimento de Topo (Ex: 10 min)
+EXIGIR_ACIMA_MEDIA = True       # Exige estar acima da média dos últimos minutos
+JANELA_MEDIA = 10               # Tempo em minutos para calcular a Média (Ex: 10 min)
+PERCENTUAL_ACIMA_MEDIA = 2.0    # Mínimo (%) acima da média
 
 # Silêncio Noturno (Hora de Portugal - Europe/Lisbon)
-SILENCIO_NOTURNO = False      # Muda para True para ativar o silêncio noturno
-SILENCIO_INICIO = "01:00"     # Hora de início do silêncio (formato HH:MM)
-SILENCIO_FIM = "07:30"        # Hora de fim do silêncio (formato HH:MM)
+SILENCIO_NOTURNO = False        # Muda para True para ativar o silêncio noturno
+SILENCIO_INICIO = "01:00"       # Hora de início do silêncio (formato HH:MM)
+SILENCIO_FIM = "07:30"          # Hora de fim do silêncio (formato HH:MM)
 
 # Relatório Diário de "Pulso" (Hora de Portugal - Europe/Lisbon)
-RELATORIO_DIARIO = True       # Muda para False se não quiseres o resumo diário
-HORA_RELATORIO = "09:00"      # Hora de envio da confirmação diária (formato HH:MM)
+RELATORIO_DIARIO = True         # Muda para False se não quiseres o resumo diário
+HORA_RELATORIO = "09:00"        # Hora de envio da confirmação diária (HH:MM)
 
 # Lista Branca Oficial Revolut X (289 pares USD)
 MOEDAS_PERMITIDAS = [
@@ -63,13 +70,14 @@ MOEDAS_PERMITIDAS = [
 app = Flask(__name__)
 FUSO_PT = ZoneInfo("Europe/Lisbon")
 PERMITIDAS_SET = {m.strip().upper() for m in MOEDAS_PERMITIDAS if m.strip()}
+MAX_HISTORICO = max(JANELA_IMPULSO, JANELA_TOPO, JANELA_MEDIA)
 
 historico_precos = {}
 ultimo_dia_relatorio = ""
 
 @app.route('/')
 def home():
-    return f"Radar Revolut X Ativo | Moedas USD monitorizadas: {len(PERMITIDAS_SET)}"
+    return f"Radar Revolut X Ativo | Moedas USD: {len(PERMITIDAS_SET)}"
 
 def enviar_telegram(texto):
     host_tg = ".".join(["api", "telegram", "org"])
@@ -124,8 +132,8 @@ def loop_radar():
     global ultimo_dia_relatorio
     enviar_telegram(
         f"🚀 Radar Revolut X Iniciado!\n"
-        f"Moedas USD na lista branca: {len(PERMITIDAS_SET)}\n"
-        f"Janela: {JANELA_MINUTOS} min | Gatilho: +{PERCENTUAL_ALERTA}%"
+        f"Moedas USD: {len(PERMITIDAS_SET)} | Impulso: +{PERCENTUAL_ALERTA}% ({JANELA_IMPULSO}m)\n"
+        f"Topo ({JANELA_TOPO}m): {'ON' if EXIGIR_ROMPIMENTO_TOPO else 'OFF'} | Média ({JANELA_MEDIA}m): {'ON' if EXIGIR_ACIMA_MEDIA else 'OFF'}"
     )
 
     while True:
@@ -145,26 +153,44 @@ def loop_radar():
             alertas_do_minuto = []
             for moeda, preco_atual in precos_atuais.items():
                 if moeda not in historico_precos:
-                    historico_precos[moeda] = deque(maxlen=JANELA_MINUTOS)
+                    historico_precos[moeda] = deque(maxlen=MAX_HISTORICO)
 
-                fila_precos = historico_precos[moeda]
-                if len(fila_precos) > 0:
-                    lista_valores = list(fila_precos)
-                    menor_preco_janela = min(lista_valores)
-                    indice_minimo = lista_valores.index(menor_preco_janela)
-                    minutos_decorridos = len(lista_valores) - indice_minimo
+                fila_geral = historico_precos[moeda]
+                if len(fila_geral) > 0:
+                    lista_completa = list(fila_geral)
+                    lista_impulso = lista_completa[-JANELA_IMPULSO:]
+                    lista_topo = lista_completa[-JANELA_TOPO:]
+                    lista_media = lista_completa[-JANELA_MEDIA:]
 
-                    if menor_preco_janela > 0:
-                        variacao = ((preco_atual - menor_preco_janela) / menor_preco_janela) * 100
-                        if variacao >= PERCENTUAL_ALERTA:
-                            preco_txt = formatar_preco(preco_atual)
-                            alertas_do_minuto.append(f"🟢 {moeda}: +{variacao:.2f}% em {minutos_decorridos} min ({preco_txt})")
-                            fila_precos.clear()
+                    # 1. Impulso rápido
+                    menor_impulso = min(lista_impulso)
+                    indice_min = lista_impulso.index(menor_impulso)
+                    minutos_decorridos = len(lista_impulso) - indice_min
 
-                fila_precos.append(preco_atual)
+                    if menor_impulso > 0:
+                        variacao_impulso = ((preco_atual - menor_impulso) / menor_impulso) * 100
+
+                        if variacao_impulso >= PERCENTUAL_ALERTA:
+                            # 2. Rompimento de Topo na sua janela própria
+                            topo_janela = max(lista_topo)
+                            passou_topo = (not EXIGIR_ROMPIMENTO_TOPO) or (preco_atual > topo_janela)
+
+                            # 3. Distância da Média na sua janela própria
+                            media_janela = sum(lista_media) / len(lista_media)
+                            variacao_media = ((preco_atual - media_janela) / media_janela) * 100
+                            passou_media = (not EXIGIR_ACIMA_MEDIA) or (variacao_media >= PERCENTUAL_ACIMA_MEDIA)
+
+                            if passou_topo and passou_media:
+                                preco_txt = formatar_preco(preco_atual)
+                                alertas_do_minuto.append(
+                                    f"🟢 {moeda}: +{variacao_impulso:.2f}% em {minutos_decorridos} min ({preco_txt})"
+                                )
+                                fila_geral.clear()
+
+                fila_geral.append(preco_atual)
 
             if alertas_do_minuto and not esta_em_silencio_noturno():
-                mensagem_final = f"⚠️ Subidas Rápidas Revolut X (Janela {JANELA_MINUTOS}m):\n\n" + "\n".join(alertas_do_minuto[:35])
+                mensagem_final = f"⚠️ Rompimentos Revolut X:\n\n" + "\n".join(alertas_do_minuto[:35])
                 enviar_telegram(mensagem_final)
 
         tempo_decorrido = time.time() - inicio_ciclo
