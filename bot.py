@@ -190,7 +190,7 @@ def loop_radar():
                 fila_geral.append(preco_atual)
 
             if alertas_do_minuto and not esta_em_silencio_noturno():
-                mensagem_final = f"⚠️ Rompimentos Revolut X:\n\n" + "\n".join(alertas_do_minuto[:35])
+                mensagem_final = f" Subida Revolut X:\n\n" + "\n".join(alertas_do_minuto[:35])
                 enviar_telegram(mensagem_final)
 
         tempo_decorrido = time.time() - inicio_ciclo
