@@ -1,83 +1,69 @@
 import time
 import threading
+import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from collections import deque
-import requests
 from flask import Flask
 
 # ==============================================================================
-# CONFIGURAÇÕES DO RADAR (ALTERAR APENAS AQUI)
+# 1. CREDENCIAIS DO TELEGRAM (Cole aqui os seus dados do código anterior)
 # ==============================================================================
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
-CHAT_ID = 9290388900  # Coloca o teu número de Chat ID sem aspas
+CHAT_ID = 9290388900
 
-# Regras de Mercado
-PERCENTUAL_ALERTA = 3.0         # Subida mínima (%) na janela de impulso
-JANELA_IMPULSO = 5              # Janela rápida de impulso em minutos (Ex: 5 min)
-INTERVALO_LEITURA = 60          # Tempo entre leituras em segundos (60 = 1 min)
+# ==============================================================================
+# 2. PAINEL DE CONTROLO FÁCIL (Altere apenas os valores à direita do sinal =)
+# ==============================================================================
 
-# Filtros Anti-Ruído / Anti-Bots (Instantâneos - Sem atraso)
-EXIGIR_ROMPIMENTO_TOPO = True   # Exige superar o máximo dos últimos minutos
-JANELA_TOPO = 10                # Tempo em minutos para o Rompimento de Topo (Ex: 10 min)
-EXIGIR_ACIMA_MEDIA = True       # Exige estar acima da média dos últimos minutos
-JANELA_MEDIA = 10               # Tempo em minutos para calcular a Média (Ex: 10 min)
-PERCENTUAL_ACIMA_MEDIA = 2.0    # Mínimo (%) acima da média
+# MODO DE FILTRAGEM:
+# False = Envia TODOS os padrões encontrados e diz se é Alta, Média ou Baixa probabilidade.
+# True  = Só envia mensagens se o sinal for de ALTA PROBABILIDADE (4/4 pontos).
+MODO_ESTRITO = False
 
-# Silêncio Noturno (Hora de Portugal - Europe/Lisbon)
-SILENCIO_NOTURNO = False        # Muda para True para ativar o silêncio noturno
-SILENCIO_INICIO = "01:00"       # Hora de início do silêncio (formato HH:MM)
-SILENCIO_FIM = "07:30"          # Hora de fim do silêncio (formato HH:MM)
+# RIGOR DA QUEDA INICIAL (Vela 1):
+# Percentagem mínima que a 1.ª vela vermelha tem de cair para o padrão contar.
+# Exemplo: 1.5 significa queda de pelo menos 1.5%.
+QUEDA_MINIMA_VELA1 = 1.5
 
-# Relatório Diário de "Pulso" (Hora de Portugal - Europe/Lisbon)
-RELATORIO_DIARIO = True         # Muda para False se não quiseres o resumo diário
-HORA_RELATORIO = "09:00"        # Hora de envio da confirmação diária (HH:MM)
+# TAMANHO DA VELA DE TRAVÃO (Vela 2 - O meio da Estrela):
+# Tamanho máximo do corpo da 2.ª vela comparado com a 1.ª vela.
+# 0.35 significa que a 2.ª vela tem de ser pequena (no máximo 35% do tamanho da 1.ª).
+TAMANHO_MAX_ESTRELA = 0.35
 
-# Lista Branca Oficial Revolut X (289 pares USD)
+# ALERTA DE QUEDA DO BITCOIN:
+# Se o Bitcoin cair mais do que esta percentagem nos últimos 15 min, o bot rebaixa a nota e avisa-o.
+LIMITE_QUEDA_BTC = -0.5
+
+# SILÊNCIO NOTURNO (Hora de Portugal - Europe/Lisbon):
+SILENCIO_NOTURNO = False        # Mude para True se não quiser mensagens enquanto dorme
+SILENCIO_INICIO = "01:00"       # Hora de início do silêncio
+SILENCIO_FIM = "07:30"          # Hora de fim do silêncio
+
+# RELATÓRIO DIÁRIO DE VIDA (Hora de Portugal - Europe/Lisbon):
+RELATORIO_DIARIO = True         # Envia 1 mensagem por dia para confirmar que o bot está ligado
+HORA_RELATORIO = "09:00"        # Hora do aviso diário
+
+# ==============================================================================
+# 3. LISTA DE MOEDAS DA REVOLUT X (Cole aqui a sua lista das 289 moedas)
+# ==============================================================================
 MOEDAS_PERMITIDAS = [
-    "1INCH", "2Z", "A8", "AAVE", "ABT", "ACH", "ACS", "ADA", "AERGO", "AERO",
-    "AGLD", "AI", "AIOZ", "AKT", "ALCX", "ALEO", "ALEPH", "ALGO", "ALICE", "AMP",
-    "ANKR", "APE", "API3", "APT", "ARB", "ARKM", "ARPA", "ASM", "AST", "ATH",
-    "ATOM", "AUCTION", "AUDIO", "AURORA", "AVAX", "AVNT", "AVT", "AWE", "AXS", "B3",
-    "BAL", "BAND", "BAT", "BCH", "BEAM", "BENJI", "BERA", "BICO", "BIGTIME", "BLUR",
-    "BLZ", "BNB", "BNT", "BOBA", "BONK", "BTC", "BTRST", "C98", "CC", "CELO",
-    "CELR", "CHZ", "CLANKER", "COMP", "COOKIE", "COTI", "COW", "CRO", "CRV", "CTSI",
-    "CVC", "CVX", "DASH", "DEGEN", "DIA", "DIMO", "DOGE", "DOGINME", "DOGS", "DOT",
-    "DRIFT", "DYDX", "EDGE", "EGLD", "EIGEN", "ELA", "ENA", "ENS", "ETC", "ETH",
-    "EUL", "FAI", "FARM", "FET", "FIDA", "FIL", "FLOKI", "FLOW", "FLR", "FORT",
-    "GALA", "GFI", "GHST", "GIGA", "GLM", "GMT", "GODS", "GRASS", "GRT", "GTC",
-    "GUN", "HBAR", "HFT", "HIGH", "HNT", "HONEY", "HOPR", "HYPE", "ICP", "IDOS",
-    "ILV", "IMU", "IMX", "INIT", "INJ", "IO", "IP", "JASMY", "JTO", "JUP",
-    "KAITO", "KARRAT", "KAVA", "KERNEL", "KNC", "KRL", "KSM", "KTA", "L3", "LA",
-    "LAYER", "LCX", "LDO", "LINK", "LMWR", "LPT", "LQTY", "LRC", "LRDS", "LTC",
-    "MAGIC", "MANA", "MASK", "MATH", "MDT", "ME", "MELANIA", "METIS", "MEW", "MINA",
-    "MLN", "MNDE", "MOG", "MON", "MOODENG", "MORPHO", "MSOL", "NCT", "NEAR", "NEIRO",
-    "NKN", "NMR", "NOT", "OCEAN", "OFC", "OGN", "ONDO", "OP", "ORCA", "OSMO",
-    "OXT", "PARTI", "PENDLE", "PENGU", "PEPE", "PERP", "PLUME", "PNG", "PNUT", "POL",
-    "POLS", "POND", "PONKE", "POPCAT", "POWR", "PRCL", "PRIME", "PRO", "PROMPT", "PROVE",
-    "PUMP", "PUNDIX", "PYTH", "QI", "QNT", "RAD", "RARE", "RARI", "RAY", "RED",
-    "RENDER", "REQ", "REZ", "RLC", "RLS", "ROSE", "RPL", "RSC", "RSR", "SAFE",
-    "SAND", "SD", "SEI", "SENT", "SHDW", "SHIB", "SHPING", "SKL", "SKY", "SNX",
-    "SOL", "SPA", "SPELL", "SPK", "SPX", "SQD", "STG", "STORJ", "STRK", "STX",
-    "SUI", "SUKU", "SUPER", "SUSHI", "SWELL", "SWFTC", "SXT", "SYRUP", "TAIKO", "TIA",
-    "TNSR", "TOKEN", "TON", "TOSHI", "TRAC", "TRB", "TREE", "TRU", "TRUMP", "TRX",
-    "TURBO", "UMA", "UNI", "USDC", "VET", "VTHO", "VVV", "WAL", "WIF", "WLD",
-    "WLFI", "WOO", "XAN", "XCN", "XDC", "XLM", "XPL", "XRP", "XTZ", "XYO",
-    "YFI", "ZAMA", "ZEN", "ZK", "ZKC", "ZKJ", "ZORA", "ZRO", "ZRX"
+    "ETH", "SOL", "XRP", "ADA", "AVAX", "LINK", "DOT", "SUI"
+    # APAGUE ESTA LINHA DE EXEMPLO E COLE AQUI AS SUAS 289 MOEDAS
 ]
+
+# ==============================================================================
+# DAQUI PARA BAIXO É O MOTOR DO BOT (Não precisa de alterar nada)
 # ==============================================================================
 
 app = Flask(__name__)
 FUSO_PT = ZoneInfo("Europe/Lisbon")
-PERMITIDAS_SET = {m.strip().upper() for m in MOEDAS_PERMITIDAS if m.strip()}
-MAX_HISTORICO = max(JANELA_IMPULSO, JANELA_TOPO, JANELA_MEDIA)
-
-historico_precos = {}
+PERMITIDAS_LISTA = sorted({m.strip().upper() for m in MOEDAS_PERMITIDAS if m.strip()})
 ultimo_dia_relatorio = ""
 
 @app.route('/')
 def home():
-    return f"Radar Revolut X Ativo | Moedas USD: {len(PERMITIDAS_SET)}"
+    modo_txt = "ESTRITO (Só Alta Prob.)" if MODO_ESTRITO else "TODOS OS SINAIS (Com Nota)"
+    return f"Radar 15m Estrela da Manhã Ativo | Moedas: {len(PERMITIDAS_LISTA)} | Modo: {modo_txt}"
 
 def enviar_telegram(texto):
     host_tg = ".".join(["api", "telegram", "org"])
@@ -88,16 +74,6 @@ def enviar_telegram(texto):
     except Exception:
         pass
 
-def formatar_preco(valor):
-    if valor >= 100:
-        return f"${valor:.2f}"
-    elif valor >= 1:
-        return f"${valor:.4f}"
-    elif valor >= 0.01:
-        return f"${valor:.5f}"
-    else:
-        return f"${valor:.8f}"
-
 def esta_em_silencio_noturno():
     if not SILENCIO_NOTURNO:
         return False
@@ -106,96 +82,172 @@ def esta_em_silencio_noturno():
         return SILENCIO_INICIO <= agora_str < SILENCIO_FIM
     return agora_str >= SILENCIO_INICIO or agora_str < SILENCIO_FIM
 
-def obter_precos_usd():
-    host_cb = ".".join(["api", "coinbase", "com"])
-    url = f"https://{host_cb}/v2/exchange-rates?currency=USD"
+def obter_velas_15m(moeda):
+    """Vai buscar as últimas velas de 15 minutos à Coinbase Exchange."""
+    host_cb = ".".join(["api", "exchange", "coinbase", "com"])
+    url = f"https://{host_cb}/products/{moeda}-USD/candles?granularity=900"
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        resposta = requests.get(url, timeout=15)
+        resposta = requests.get(url, headers=headers, timeout=10)
         if resposta.status_code == 200:
-            taxas = resposta.json().get("data", {}).get("rates", {})
-            precos = {}
-            for moeda, taxa in taxas.items():
-                if moeda not in PERMITIDAS_SET:
-                    continue
-                try:
-                    valor_taxa = float(taxa)
-                    if valor_taxa > 0:
-                        precos[moeda] = 1.0 / valor_taxa
-                except ValueError:
-                    continue
-            return precos
+            dados = resposta.json()
+            if isinstance(dados, list) and len(dados) >= 25:
+                return dados
     except Exception:
-        return None
+        pass
     return None
+    
+def analisar_contexto_btc():
+    """Verifica se o Bitcoin caiu com força na última vela fechada de 15 min."""
+    velas_btc = obter_velas_15m("BTC")
+    if not velas_btc:
+        return True, 0.0
+
+    # Estrutura Coinbase: [0:timestamp, 1:low, 2:high, 3:open, 4:close, 5:volume]
+    ultima_fechada = velas_btc[1]
+    abertura = float(ultima_fechada[3])
+    fecho = float(ultima_fechada[4])
+
+    if abertura > 0:
+        variacao_btc = ((fecho - abertura) / abertura) * 100
+        btc_saudavel = variacao_btc >= LIMITE_QUEDA_BTC
+        return btc_saudavel, variacao_btc
+    return True, 0.0
+
+def analisar_estrela_manha(moeda, velas, btc_saudavel, variacao_btc):
+    """Analisa se as últimas 3 velas fechadas formam uma Estrela da Manhã e dá uma nota."""
+    # velas[0] é a vela atual ainda aberta (ignoramos)
+    v3 = velas[1]  # Vela 3 (Última fechada - Confirmação Verde)
+    v2 = velas[2]  # Vela 2 (Penúltima fechada - Estrela / Travão)
+    v1 = velas[3]  # Vela 1 (Antepenúltima fechada - Queda Vermelha)
+
+    v1_open, v1_close, v1_vol = float(v1[3]), float(v1[4]), float(v1[5])
+    v2_open, v2_close, v2_vol = float(v2[3]), float(v2[4]), float(v2[5])
+    v3_open, v3_close, v3_vol = float(v3[3]), float(v3[4]), float(v3[5])
+
+    if v1_open <= 0 or v2_open <= 0 or v3_open <= 0:
+        return None
+
+    # 1. Vela 1 tem de ser VERMELHA e cair pelo menos QUEDA_MINIMA_VELA1 %
+    queda_v1 = ((v1_open - v1_close) / v1_open) * 100
+    if v1_close >= v1_open or queda_v1 < QUEDA_MINIMA_VELA1:
+        return None
+
+    corpo_v1 = abs(v1_open - v1_close)
+    corpo_v2 = abs(v2_open - v2_close)
+
+    # 2. Vela 2 tem de ser PEQUENA (no máximo TAMANHO_MAX_ESTRELA do corpo da Vela 1)
+    if corpo_v2 > (corpo_v1 * TAMANHO_MAX_ESTRELA):
+        return None
+
+    # 3. Vela 3 tem de ser VERDE e fechar acima da METADE do corpo da Vela 1
+    meio_v1 = v1_close + (corpo_v1 * 0.50)
+    if v3_close <= v3_open or v3_close < meio_v1:
+        return None
+
+    # --- AVALIAÇÃO DE QUALIDADE (0 a 4 pontos) ---
+    pontos = 0
+    detalhes = []
+
+    # Critério 1: Tendência Prévia (abaixo da média das últimas 20 velas)
+    fechos_anteriores = [float(v[4]) for v in velas[4:24]]
+    media_20 = sum(fechos_anteriores) / len(fechos_anteriores)
+    if v1_close < media_20:
+        pontos += 1
+        detalhes.append("✅ Após queda (abaixo média 20v)")
+    else:
+        detalhes.append("⚠️ Mercado lateral/topo")
+
+    # Critério 2: Força da Vela 3 (Fechou acima de 70% da Vela 1?)
+    setenta_v1 = v1_close + (corpo_v1 * 0.70)
+    if v3_close >= setenta_v1:
+        pontos += 1
+        detalhes.append("✅ Recuperação muito forte (>70%)")
+    else:
+        detalhes.append("➖ Recuperação moderada (>50%)")
+
+    # Critério 3: Volume (Vela 3 tem mais volume que a Vela 2?)
+    if v3_vol > v2_vol:
+        pontos += 1
+        detalhes.append("✅ Volume comprador a subir")
+    else:
+        detalhes.append("⚠️ Volume fraco na 3.ª vela")
+
+    # Critério 4: Contexto do Bitcoin
+    if btc_saudavel:
+        pontos += 1
+        detalhes.append(f"✅ BTC estável ({variacao_btc:+.2f}%)")
+    else:
+        detalhes.append(f"🚨 ATENÇÃO: BTC em queda ({variacao_btc:+.2f}%)")
+
+    if pontos == 4:
+        etiqueta = "🟢 ALTA PROBABILIDADE (4/4)"
+    elif pontos == 3:
+        etiqueta = "🟡 MÉDIA PROBABILIDADE (3/4)"
+    else:
+        etiqueta = f"⚪ BAIXA PROBABILIDADE ({pontos}/4)"
+
+    if MODO_ESTRITO and pontos < 4:
+        return None
+
+    subida_v3 = ((v3_close - v3_open) / v3_open) * 100
+    texto_alerta = (
+        f"{etiqueta}\n"
+        f"🪙 Moeda: {moeda} (15m)\n"
+        f"📉 Queda V1: -{queda_v1:.2f}% | 📈 Subida V3: +{subida_v3:.2f}%\n"
+        + "\n".join(detalhes)
+    )
+    return texto_alerta
+
+def aguardar_proximo_fecho_15m():
+    """Calcula quantos segundos faltam para o próximo minuto :00, :15, :30 ou :45 (+5 seg margem)."""
+    agora = datetime.now(FUSO_PT)
+    minutos_atuais = agora.minute
+    segundos_atuais = agora.second
+
+    minutos_para_proximo = 15 - (minutos_atuais % 15)
+    segundos_espera = (minutos_para_proximo * 60) - segundos_atuais + 5
+    if segundos_espera <= 5:
+        segundos_espera += 900
+    return segundos_espera
 
 def loop_radar():
     global ultimo_dia_relatorio
+    modo_str = "ESTRITO (Só 4/4)" if MODO_ESTRITO else "COMPLETO (Todos com Nota)"
     enviar_telegram(
-        f"🚀 Radar Revolut X Iniciado!\n"
-        f"Moedas USD: {len(PERMITIDAS_SET)} | Impulso: +{PERCENTUAL_ALERTA}% ({JANELA_IMPULSO}m)\n"
-        f"Topo ({JANELA_TOPO}m): {'ON' if EXIGIR_ROMPIMENTO_TOPO else 'OFF'} | Média ({JANELA_MEDIA}m): {'ON' if EXIGIR_ACIMA_MEDIA else 'OFF'}"
+        f"🚀 Radar 15m (Estrela da Manhã) Iniciado!\n"
+        f"Moedas Revolut X: {len(PERMITIDAS_LISTA)}\n"
+        f"Modo: {modo_str} | Queda Mín. V1: {QUEDA_MINIMA_VELA1}%"
     )
 
     while True:
-        inicio_ciclo = time.time()
+        espera = aguardar_proximo_fecho_15m()
+        time.sleep(espera)
+
         agora_pt = datetime.now(FUSO_PT)
 
         if RELATORIO_DIARIO:
             hoje_str = agora_pt.strftime("%Y-%m-%d")
             hora_atual_str = agora_pt.strftime("%H:%M")
-            if hoje_str != ultimo_dia_relatorio and hora_atual_str == HORA_RELATORIO:
-                ultimo_dia_relatorio = hoje_str
-                enviar_telegram(f"✅ Radar Revolut X Ativo ({len(PERMITIDAS_SET)} moedas USD monitorizadas)")
+            if hoje_str != ultimo_dia_relatorio and hora_atual_str.startswith(HORA_RELATORIO[:3]):
+                if int(hora_atual_str[3:]) >= int(HORA_RELATORIO[3:]):
+                    ultimo_dia_relatorio = hoje_str
+                    enviar_telegram(f"✅ Radar 15m Ativo ({len(PERMITIDAS_LISTA)} moedas vigiadas)")
 
-        precos_atuais = obter_precos_usd()
+        if esta_em_silencio_noturno():
+            continue
 
-        if precos_atuais:
-            alertas_do_minuto = []
-            for moeda, preco_atual in precos_atuais.items():
-                if moeda not in historico_precos:
-                    historico_precos[moeda] = deque(maxlen=MAX_HISTORICO)
+        btc_saudavel, variacao_btc = analisar_contexto_btc()
+        time.sleep(0.15)
 
-                fila_geral = historico_precos[moeda]
-                if len(fila_geral) > 0:
-                    lista_completa = list(fila_geral)
-                    lista_impulso = lista_completa[-JANELA_IMPULSO:]
-                    lista_topo = lista_completa[-JANELA_TOPO:]
-                    lista_media = lista_completa[-JANELA_MEDIA:]
+        for moeda in PERMITIDAS_LISTA:
+            velas = obter_velas_15m(moeda)
+            if velas:
+                alerta = analisar_estrela_manha(moeda, velas, btc_saudavel, variacao_btc)
+                if alerta:
+                    enviar_telegram(alerta)
 
-                    # 1. Impulso rápido
-                    menor_impulso = min(lista_impulso)
-                    indice_min = lista_impulso.index(menor_impulso)
-                    minutos_decorridos = len(lista_impulso) - indice_min
-
-                    if menor_impulso > 0:
-                        variacao_impulso = ((preco_atual - menor_impulso) / menor_impulso) * 100
-
-                        if variacao_impulso >= PERCENTUAL_ALERTA:
-                            # 2. Rompimento de Topo na sua janela própria
-                            topo_janela = max(lista_topo)
-                            passou_topo = (not EXIGIR_ROMPIMENTO_TOPO) or (preco_atual > topo_janela)
-
-                            # 3. Distância da Média na sua janela própria
-                            media_janela = sum(lista_media) / len(lista_media)
-                            variacao_media = ((preco_atual - media_janela) / media_janela) * 100
-                            passou_media = (not EXIGIR_ACIMA_MEDIA) or (variacao_media >= PERCENTUAL_ACIMA_MEDIA)
-
-                            if passou_topo and passou_media:
-                                preco_txt = formatar_preco(preco_atual)
-                                alertas_do_minuto.append(
-                                    f"🟢 {moeda}: +{variacao_impulso:.2f}% em {minutos_decorridos} min ({preco_txt})"
-                                )
-                                fila_geral.clear()
-
-                fila_geral.append(preco_atual)
-
-            if alertas_do_minuto and not esta_em_silencio_noturno():
-                mensagem_final = f" Subida Revolut X:\n\n" + "\n".join(alertas_do_minuto[:35])
-                enviar_telegram(mensagem_final)
-
-        tempo_decorrido = time.time() - inicio_ciclo
-        tempo_espera = max(1, INTERVALO_LEITURA - tempo_decorrido)
-        time.sleep(tempo_espera)
+            time.sleep(0.15)
 
 if __name__ == "__main__":
     threading.Thread(target=loop_radar, daemon=True).start()
