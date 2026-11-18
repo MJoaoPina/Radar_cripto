@@ -47,8 +47,35 @@ HORA_RELATORIO = "09:00"        # Hora do aviso diário
 # 3. LISTA DE MOEDAS DA REVOLUT X (Cole aqui a sua lista das 289 moedas)
 # ==============================================================================
 MOEDAS_PERMITIDAS = [
-    "ETH", "SOL", "XRP", "ADA", "AVAX", "LINK", "DOT", "SUI"
-    # APAGUE ESTA LINHA DE EXEMPLO E COLE AQUI AS SUAS 289 MOEDAS
+    "1INCH", "2Z", "A8", "AAVE", "ABT", "ACH", "ACS", "ADA", "AERGO", "AERO",
+    "AGLD", "AI", "AIOZ", "AKT", "ALCX", "ALEO", "ALEPH", "ALGO", "ALICE", "AMP",
+    "ANKR", "APE", "API3", "APT", "ARB", "ARKM", "ARPA", "ASM", "AST", "ATH",
+    "ATOM", "AUCTION", "AUDIO", "AURORA", "AVAX", "AVNT", "AVT", "AWE", "AXS", "B3",
+    "BAL", "BAND", "BAT", "BCH", "BEAM", "BENJI", "BERA", "BICO", "BIGTIME", "BLUR",
+    "BLZ", "BNB", "BNT", "BOBA", "BONK", "BTC", "BTRST", "C98", "CC", "CELO",
+    "CELR", "CHZ", "CLANKER", "COMP", "COOKIE", "COTI", "COW", "CRO", "CRV", "CTSI",
+    "CVC", "CVX", "DASH", "DEGEN", "DIA", "DIMO", "DOGE", "DOGINME", "DOGS", "DOT",
+    "DRIFT", "DYDX", "EDGE", "EGLD", "EIGEN", "ELA", "ENA", "ENS", "ETC", "ETH",
+    "EUL", "FAI", "FARM", "FET", "FIDA", "FIL", "FLOKI", "FLOW", "FLR", "FORT",
+    "GALA", "GFI", "GHST", "GIGA", "GLM", "GMT", "GODS", "GRASS", "GRT", "GTC",
+    "GUN", "HBAR", "HFT", "HIGH", "HNT", "HONEY", "HOPR", "HYPE", "ICP", "IDOS",
+    "ILV", "IMU", "IMX", "INIT", "INJ", "IO", "IP", "JASMY", "JTO", "JUP",
+    "KAITO", "KARRAT", "KAVA", "KERNEL", "KNC", "KRL", "KSM", "KTA", "L3", "LA",
+    "LAYER", "LCX", "LDO", "LINK", "LMWR", "LPT", "LQTY", "LRC", "LRDS", "LTC",
+    "MAGIC", "MANA", "MASK", "MATH", "MDT", "ME", "MELANIA", "METIS", "MEW", "MINA",
+    "MLN", "MNDE", "MOG", "MON", "MOODENG", "MORPHO", "MSOL", "NCT", "NEAR", "NEIRO",
+    "NKN", "NMR", "NOT", "OCEAN", "OFC", "OGN", "ONDO", "OP", "ORCA", "OSMO",
+    "OXT", "PARTI", "PENDLE", "PENGU", "PEPE", "PERP", "PLUME", "PNG", "PNUT", "POL",
+    "POLS", "POND", "PONKE", "POPCAT", "POWR", "PRCL", "PRIME", "PRO", "PROMPT", "PROVE",
+    "PUMP", "PUNDIX", "PYTH", "QI", "QNT", "RAD", "RARE", "RARI", "RAY", "RED",
+    "RENDER", "REQ", "REZ", "RLC", "RLS", "ROSE", "RPL", "RSC", "RSR", "SAFE",
+    "SAND", "SD", "SEI", "SENT", "SHDW", "SHIB", "SHPING", "SKL", "SKY", "SNX",
+    "SOL", "SPA", "SPELL", "SPK", "SPX", "SQD", "STG", "STORJ", "STRK", "STX",
+    "SUI", "SUKU", "SUPER", "SUSHI", "SWELL", "SWFTC", "SXT", "SYRUP", "TAIKO", "TIA",
+    "TNSR", "TOKEN", "TON", "TOSHI", "TRAC", "TRB", "TREE", "TRU", "TRUMP", "TRX",
+    "TURBO", "UMA", "UNI", "USDC", "VET", "VTHO", "VVV", "WAL", "WIF", "WLD",
+    "WLFI", "WOO", "XAN", "XCN", "XDC", "XLM", "XPL", "XRP", "XTZ", "XYO",
+    "YFI", "ZAMA", "ZEN", "ZK", "ZKC", "ZKJ", "ZORA", "ZRO", "ZRX"
 ]
 
 # ==============================================================================
@@ -216,7 +243,7 @@ def loop_radar():
     modo_str = "ESTRITO (Só 4/4)" if MODO_ESTRITO else "COMPLETO (Todos com Nota)"
     enviar_telegram(
         f"🚀 Radar 15m (Estrela da Manhã) Iniciado!\n"
-        f"Moedas Revolut X: {len(PERMITIDAS_LISTA)}\n"
+        f"Moedas Revolut X : {len(PERMITIDAS_LISTA)}\n"
         f"Modo: {modo_str} | Queda Mín. V1: {QUEDA_MINIMA_VELA1}%"
     )
 
