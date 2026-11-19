@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask
 
 # ==============================================================================
-# 1. CREDENCIAIS DO TELEGRAM (Cole aqui os seus dados do código anterior)
+# 1. CREDENCIAIS DO TELEGRAM (Cole aqui os seus dados)
 # ==============================================================================
 TELEGRAM_TOKEN = "9185644092:AAGBuvJwqs3XnFQ2r8I1nN70kZYQkTOaZqg"
 CHAT_ID = 9290388900
@@ -118,7 +118,7 @@ def obter_velas_15m(moeda):
         resposta = requests.get(url, headers=headers, timeout=10)
         if resposta.status_code == 200:
             dados = resposta.json()
-            if isinstance(dados, list) and len(dados) >= 25:
+            if isinstance(dados, list) and len(dados) >= 15:
                 return dados
     except Exception:
         pass
@@ -130,10 +130,11 @@ def analisar_contexto_btc():
     if not velas_btc:
         return True, 0.0
 
-    # Estrutura Coinbase: [0:timestamp, 1:low, 2:high, 3:open, 4:close, 5:volume]
-    ultima_fechada = velas_btc[1]
-    abertura = float(ultima_fechada[3])
-    fecho = float(ultima_fechada[4])
+    _, ultima_fechada, *_ = velas_btc
+    _, _, _, abertura, fecho, _ = ultima_fechada
+
+    abertura = float(abertura)
+    fecho = float(fecho)
 
     if abertura > 0:
         variacao_btc = ((fecho - abertura) / abertura) * 100
@@ -142,17 +143,16 @@ def analisar_contexto_btc():
     return True, 0.0
 
 def analisar_estrela_manha(moeda, velas, btc_saudavel, variacao_btc):
-    """Analisa se as últimas 3 velas fechadas formam uma Estrela da Manhã e dá uma nota."""
-    # velas[0] é a vela atual ainda aberta (ignoramos)
-    v3 = velas[1]  # Vela 3 (Última fechada - Confirmação Verde)
-    v2 = velas[2]  # Vela 2 (Penúltima fechada - Estrela / Travão)
-    v1 = velas[3]  # Vela 1 (Antepenúltima fechada - Queda Vermelha)
+    """Analisa se as últimas 3 velas fechadas formam uma Estrela da Manhã real."""
+    # Desempacota: v0 (aberta), v3 (última fechada), v2 (penúltima), v1 (antepenúltima), e 6 velas anteriores (90 min)
+    v0, v3, v2, v1, a1, a2, a3, a4, a5, a6, *_ = velas
 
-    v1_open, v1_close, v1_vol = float(v1[3]), float(v1[4]), float(v1[5])
-    v2_open, v2_close, v2_vol = float(v2[3]), float(v2[4]), float(v2[5])
-    v3_open, v3_close, v3_vol = float(v3[3]), float(v3[4]), float(v3[5])
+    _, v1_low, v1_high, v1_open, v1_close, v1_vol = map(float, v1)
+    _, v2_low, v2_high, v2_open, v2_close, v2_vol = map(float, v2)
+    _, v3_low, v3_high, v3_open, v3_close, v3_vol = map(float, v3)
+    _, _, _, _, preco_90m_antes, _ = map(float, a6)
 
-    if v1_open <= 0 or v2_open <= 0 or v3_open <= 0:
+    if v1_open <= 0 or v2_open <= 0 or v3_open <= 0 or preco_90m_antes <= 0:
         return None
 
     # 1. Vela 1 tem de ser VERMELHA e cair pelo menos QUEDA_MINIMA_VELA1 %
@@ -172,18 +172,22 @@ def analisar_estrela_manha(moeda, velas, btc_saudavel, variacao_btc):
     if v3_close <= v3_open or v3_close < meio_v1:
         return None
 
+    # 4. OBRIGATÓRIO: O mercado tem de vir de uma queda real (não pode estar lateral)
+    # Verifica se o preço caiu pelo menos 1% nos 90 minutos anteriores à Vela 1
+    queda_previa = ((preco_90m_antes - v1_open) / preco_90m_antes) * 100
+    if queda_previa < 1.0:
+        return None
+
     # --- AVALIAÇÃO DE QUALIDADE (0 a 4 pontos) ---
     pontos = 0
     detalhes = []
 
-    # Critério 1: Tendência Prévia (abaixo da média das últimas 20 velas)
-    fechos_anteriores = [float(v[4]) for v in velas[4:24]]
-    media_20 = sum(fechos_anteriores) / len(fechos_anteriores)
-    if v1_close < media_20:
+    # Critério 1: Queda prévia acentuada (>2.5% antes do padrão)
+    if queda_previa >= 2.5:
         pontos += 1
-        detalhes.append("✅ Após queda (abaixo média 20v)")
+        detalhes.append(f"✅ Queda prévia forte (-{queda_previa:.2f}%)")
     else:
-        detalhes.append("⚠️ Mercado lateral/topo")
+        detalhes.append(f"➖ Queda prévia ligeira (-{queda_previa:.2f}%)")
 
     # Critério 2: Força da Vela 3 (Fechou acima de 70% da Vela 1?)
     setenta_v1 = v1_close + (corpo_v1 * 0.70)
@@ -243,7 +247,7 @@ def loop_radar():
     modo_str = "ESTRITO (Só 4/4)" if MODO_ESTRITO else "COMPLETO (Todos com Nota)"
     enviar_telegram(
         f"🚀 Radar 15m (Estrela da Manhã) Iniciado!\n"
-        f"Moedas Revolut X : {len(PERMITIDAS_LISTA)}\n"
+        f"Moedas Revolut X: {len(PERMITIDAS_LISTA)}\n"
         f"Modo: {modo_str} | Queda Mín. V1: {QUEDA_MINIMA_VELA1}%"
     )
 
